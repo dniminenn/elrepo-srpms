@@ -1,0 +1,14 @@
+This repository contains Source RPMs (SRPMs) originally created by The ELRepo Project.
+
+Original ELRepo packages are licensed under GPL v2 and available at:
+https://elrepo.org/
+
+ELRepo Copyright Notice:
+Copyright (c) The ELRepo Project
+Licensed under GPL v2
+
+Linux Kernel:
+Copyright (c) Linus Torvalds and contributors
+Licensed under GPL v2
+
+This redistribution complies with the GPL v2 license terms.
