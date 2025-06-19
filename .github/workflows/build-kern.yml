@@ -1,0 +1,86 @@
+name: Build Kernel RPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: 'kernel version (e.g., 6.1.93, 5.15.185)'
+        required: true
+        default: '6.1.93'
+      el_version:
+        description: 'enterprise linux version'
+        required: true
+        type: choice
+        options: [el8, el9]
+        default: 'el8'
+      create_release:
+        description: 'create github release'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+    container:
+      image: rockylinux:${{ fromJson('{"el8":"8","el9":"9"}')[github.event.inputs.el_version] }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: install base build tools
+      run: |
+        dnf install -y dnf-plugins-core
+        dnf config-manager --set-enabled powertools 2>/dev/null || dnf config-manager --set-enabled crb 2>/dev/null || true
+        dnf install -y epel-release
+        dnf install -y rpm-build rpmdevtools wget
+
+    - name: setup build env
+      run: |
+        useradd builder
+        mkdir -p /home/builder/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+        chown -R builder:builder /home/builder
+
+    - name: download elrepo srpm
+      run: |
+        cd /tmp
+        wget https://raw.githubusercontent.com/dniminenn/elrepo-srpms/main/kernel/${{ github.event.inputs.el_version }}/SRPMS/kernel-ml-${{ github.event.inputs.kernel_version }}-1.${{ github.event.inputs.el_version }}.nosrc.rpm
+        rpm2cpio kernel-ml-${{ github.event.inputs.kernel_version }}-1.${{ github.event.inputs.el_version }}.nosrc.rpm | cpio -idmv >/dev/null 2>&1
+        cp *.spec /home/builder/rpmbuild/SPECS/
+        shopt -s extglob
+        cp !(*.spec) /home/builder/rpmbuild/SOURCES/ || true
+
+    - name: install spec build deps
+      run: |
+        dnf builddep -y /home/builder/rpmbuild/SPECS/kernel-ml-*.spec
+
+    - name: download kernel source
+      run: |
+        wget https://cdn.kernel.org/pub/linux/kernel/v$(echo ${{ github.event.inputs.kernel_version }} | cut -d. -f1).x/linux-${{ github.event.inputs.kernel_version }}.tar.xz -O /home/builder/rpmbuild/SOURCES/linux-${{ github.event.inputs.kernel_version }}.tar.xz
+
+    - name: build rpm
+      run: |
+        chown -R builder:builder /home/builder/rpmbuild
+        KERNEL_MAJOR=$(echo "${{ github.event.inputs.kernel_version }}" | cut -d. -f1-2)
+        su - builder -c "rpmbuild -ba --without bpftool ~/rpmbuild/SPECS/kernel-ml-${KERNEL_MAJOR}.spec"
+
+    - name: collect rpms
+      run: |
+        mkdir -p /output
+        find /home/builder/rpmbuild/RPMS -name '*.rpm' -exec cp {} /output/ \;
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: kernel-ml-${{ github.event.inputs.kernel_version }}-${{ github.event.inputs.el_version }}-rpms
+        path: /output/*.rpm
+
+    - if: ${{ github.event.inputs.create_release }}
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: kernel-ml-${{ github.event.inputs.kernel_version }}-${{ github.event.inputs.el_version }}
+        name: kernel-ml ${{ github.event.inputs.kernel_version }} for ${{ github.event.inputs.el_version }}
+        files: /output/*.rpm
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
