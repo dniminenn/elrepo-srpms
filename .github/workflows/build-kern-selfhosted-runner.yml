@@ -1,4 +1,4 @@
-name: Build Kernel RPM
+name: Build Kernel RPM (self-hosted)
 
 on:
   workflow_dispatch:
